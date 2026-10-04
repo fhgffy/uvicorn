@@ -25,7 +25,7 @@ from uvicorn.config import Config, LoopFactoryType, UvicornDeprecationWarning
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from uvicorn.middleware.wsgi import WSGIMiddleware
 from uvicorn.protocols.http.h11_impl import H11Protocol
-from uvicorn.server import Server
+from uvicorn.server import Server, enable_tcp_nodelay
 
 
 @pytest.fixture
@@ -314,6 +314,30 @@ def test_supplied_listener_sets_nodelay_on_accepted_socket() -> None:
         listener.close()
 
     assert observed == [1]
+
+
+def test_enable_tcp_nodelay_ignores_unusable_sockets() -> None:
+    class Transport:
+        def __init__(self, sock: object) -> None:
+            self._sock = sock
+
+        def get_extra_info(self, name: str, default: object = None) -> object:
+            return self._sock if name == "socket" else default
+
+    class Sock:
+        def __init__(self, family: int, sock_type: int, *, fail: bool = False) -> None:
+            self.family = family
+            self.type = sock_type
+            self.fail = fail
+
+        def setsockopt(self, *_args: object) -> None:
+            if self.fail:
+                raise OSError("cannot set nodelay")
+
+    enable_tcp_nodelay(Transport(None))  # type: ignore[arg-type]
+    enable_tcp_nodelay(Transport(Sock(99, socket.SOCK_STREAM)))  # type: ignore[arg-type]
+    enable_tcp_nodelay(Transport(Sock(socket.AF_INET, socket.SOCK_DGRAM)))  # type: ignore[arg-type]
+    enable_tcp_nodelay(Transport(Sock(socket.AF_INET, socket.SOCK_STREAM, fail=True)))  # type: ignore[arg-type]
 
 
 def test_ssl_config(
