@@ -305,8 +305,7 @@ def test_supplied_listener_sets_nodelay_on_accepted_socket() -> None:
             if server.started or task.done():
                 break
             await asyncio.sleep(0.01)
-        if task.done():
-            await task
+        assert server.started
         _reader, writer = await asyncio.open_connection("127.0.0.1", listener.getsockname()[1])
         writer.close()
         await writer.wait_closed()
