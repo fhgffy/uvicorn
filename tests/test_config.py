@@ -290,7 +290,7 @@ def test_supplied_listener_sets_nodelay_on_accepted_socket() -> None:
     observed: list[int] = []
 
     class Capture(H11Protocol):
-        def connection_made(self, transport: asyncio.BaseTransport) -> None:
+        def connection_made(self, transport: asyncio.Transport) -> None:  # type: ignore[override]
             accepted = transport.get_extra_info("socket")
             # macOS reports a set TCP_NODELAY as 4, not 1.
             observed.append(accepted.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY))

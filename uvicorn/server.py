@@ -148,7 +148,7 @@ class Server:
         def create_protocol(
             _loop: asyncio.AbstractEventLoop | None = None,
         ) -> asyncio.Protocol:
-            return NodelayProtocol(  # type: ignore[call-arg]
+            return NodelayProtocol(
                 config=config,
                 server_state=self.server_state,
                 app_state=self.lifespan.state,
