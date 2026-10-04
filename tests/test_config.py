@@ -292,16 +292,21 @@ def test_supplied_listener_sets_nodelay_on_accepted_socket() -> None:
     class Capture(H11Protocol):
         def connection_made(self, transport: asyncio.BaseTransport) -> None:
             accepted = transport.get_extra_info("socket")
+            # macOS reports a set TCP_NODELAY as 4, not 1.
             observed.append(accepted.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY))
-            transport.close()
+            super().connection_made(transport)
 
     async def once() -> None:
         config = Config(app=asgi_app, http=Capture, lifespan="off", log_level="error")
         config.load()
         server = Server(config)
         task = asyncio.create_task(server.serve(sockets=[listener]))
-        while not server.started:
+        for _ in range(500):
+            if server.started or task.done():
+                break
             await asyncio.sleep(0.01)
+        if task.done():
+            await task
         _reader, writer = await asyncio.open_connection("127.0.0.1", listener.getsockname()[1])
         writer.close()
         await writer.wait_closed()
@@ -313,7 +318,7 @@ def test_supplied_listener_sets_nodelay_on_accepted_socket() -> None:
     finally:
         listener.close()
 
-    assert observed == [1]
+    assert observed and observed[0] != 0
 
 
 def test_enable_tcp_nodelay_ignores_unusable_sockets() -> None:

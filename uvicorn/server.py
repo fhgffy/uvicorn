@@ -135,26 +135,25 @@ class Server:
             sys.exit(STARTUP_FAILURE)
 
         config = self.config
+        protocol_class = config.http_protocol_class
+
+        class NodelayProtocol(protocol_class):  # type: ignore[misc, valid-type]
+            def connection_made(self, transport: asyncio.BaseTransport) -> None:
+                # Listeners created outside this process, such as Gunicorn's,
+                # keep proto=0, so asyncio skips TCP_NODELAY. A subclass keeps
+                # this off the instance, including slotted custom protocols.
+                enable_tcp_nodelay(transport)
+                super().connection_made(transport)
 
         def create_protocol(
             _loop: asyncio.AbstractEventLoop | None = None,
         ) -> asyncio.Protocol:
-            protocol = config.http_protocol_class(  # type: ignore[call-arg]
+            return NodelayProtocol(  # type: ignore[call-arg]
                 config=config,
                 server_state=self.server_state,
                 app_state=self.lifespan.state,
                 _loop=_loop,
             )
-            # A listener created outside this process, such as a Gunicorn socket,
-            # keeps proto=0. asyncio then skips TCP_NODELAY on the accepted socket.
-            connection_made = protocol.connection_made
-
-            def connection_made_with_nodelay(transport: asyncio.BaseTransport) -> None:
-                enable_tcp_nodelay(transport)
-                connection_made(transport)
-
-            protocol.connection_made = connection_made_with_nodelay  # type: ignore[method-assign]
-            return protocol
 
         loop = asyncio.get_running_loop()
 
