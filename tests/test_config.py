@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import configparser
 import io
 import json
@@ -24,6 +25,7 @@ from uvicorn.config import Config, LoopFactoryType, UvicornDeprecationWarning
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from uvicorn.middleware.wsgi import WSGIMiddleware
 from uvicorn.protocols.http.h11_impl import H11Protocol
+from uvicorn.server import Server
 
 
 @pytest.fixture
@@ -277,6 +279,41 @@ def test_bind_socket_reports_tcp_protocol() -> None:
         assert sock.proto == socket.IPPROTO_TCP
     finally:
         sock.close()
+
+
+def test_supplied_listener_sets_nodelay_on_accepted_socket() -> None:
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    assert listener.proto == 0
+    observed: list[int] = []
+
+    class Capture(H11Protocol):
+        def connection_made(self, transport: asyncio.BaseTransport) -> None:
+            accepted = transport.get_extra_info("socket")
+            observed.append(accepted.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY))
+            transport.close()
+
+    async def once() -> None:
+        config = Config(app=asgi_app, http=Capture, lifespan="off", log_level="error")
+        config.load()
+        server = Server(config)
+        task = asyncio.create_task(server.serve(sockets=[listener]))
+        while not server.started:
+            await asyncio.sleep(0.01)
+        _reader, writer = await asyncio.open_connection("127.0.0.1", listener.getsockname()[1])
+        writer.close()
+        await writer.wait_closed()
+        server.should_exit = True
+        await task
+
+    try:
+        asyncio.run(once())
+    finally:
+        listener.close()
+
+    assert observed == [1]
 
 
 def test_ssl_config(

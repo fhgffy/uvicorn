@@ -21,6 +21,23 @@ from uvicorn._ansi import style
 from uvicorn._compat import asyncio_run
 from uvicorn.config import STARTUP_FAILURE, Config
 
+
+def enable_tcp_nodelay(transport: asyncio.BaseTransport) -> None:
+    """Turn off Nagle's algorithm on an accepted TCP socket.
+
+    Unix sockets and sockets that do not expose a file descriptor are left alone.
+    """
+    sock = transport.get_extra_info("socket")
+    if sock is None or sock.family not in (socket.AF_INET, socket.AF_INET6):
+        return
+    if sock.type != socket.SOCK_STREAM:
+        return
+    try:
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    except OSError:
+        return
+
+
 if TYPE_CHECKING:
     from uvicorn.protocols.http.auto_zttp_impl import AutoZttpProtocol
     from uvicorn.protocols.http.h11_impl import H11Protocol
@@ -122,12 +139,22 @@ class Server:
         def create_protocol(
             _loop: asyncio.AbstractEventLoop | None = None,
         ) -> asyncio.Protocol:
-            return config.http_protocol_class(  # type: ignore[call-arg]
+            protocol = config.http_protocol_class(  # type: ignore[call-arg]
                 config=config,
                 server_state=self.server_state,
                 app_state=self.lifespan.state,
                 _loop=_loop,
             )
+            # A listener created outside this process, such as a Gunicorn socket,
+            # keeps proto=0. asyncio then skips TCP_NODELAY on the accepted socket.
+            connection_made = protocol.connection_made
+
+            def connection_made_with_nodelay(transport: asyncio.BaseTransport) -> None:
+                enable_tcp_nodelay(transport)
+                connection_made(transport)
+
+            protocol.connection_made = connection_made_with_nodelay  # type: ignore[method-assign]
+            return protocol
 
         loop = asyncio.get_running_loop()
 
