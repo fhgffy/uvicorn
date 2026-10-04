@@ -268,6 +268,17 @@ def test_socket_bind() -> None:
     sock.close()
 
 
+def test_bind_socket_reports_tcp_protocol() -> None:
+    config = Config(app=asgi_app, host="127.0.0.1", port=0)
+    config.load()
+    sock = config.bind_socket()
+    try:
+        assert sock.type == socket.SOCK_STREAM
+        assert sock.proto == socket.IPPROTO_TCP
+    finally:
+        sock.close()
+
+
 def test_ssl_config(
     tls_ca_certificate_pem_path: str,
     tls_ca_certificate_private_key_path: str,
