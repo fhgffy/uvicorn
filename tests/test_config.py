@@ -320,7 +320,8 @@ def test_supplied_listener_sets_nodelay_on_accepted_socket() -> None:
     assert observed and observed[0] != 0
 
 
-def test_enable_tcp_nodelay_ignores_unusable_sockets() -> None:
+def test_enable_tcp_nodelay_ignores_unusable_sockets(caplog: pytest.LogCaptureFixture) -> None:
+    # 2026-10-05：验证跳过不可用套接字，并保留设置失败的调试证据。
     class Transport:
         def __init__(self, sock: object) -> None:
             self._sock = sock
@@ -333,15 +334,23 @@ def test_enable_tcp_nodelay_ignores_unusable_sockets() -> None:
             self.family = family
             self.type = sock_type
             self.fail = fail
+            self.calls = 0
 
         def setsockopt(self, *_args: object) -> None:
+            self.calls += 1
             if self.fail:
                 raise OSError("cannot set nodelay")
 
     enable_tcp_nodelay(Transport(None))  # type: ignore[arg-type]
-    enable_tcp_nodelay(Transport(Sock(99, socket.SOCK_STREAM)))  # type: ignore[arg-type]
-    enable_tcp_nodelay(Transport(Sock(socket.AF_INET, socket.SOCK_DGRAM)))  # type: ignore[arg-type]
-    enable_tcp_nodelay(Transport(Sock(socket.AF_INET, socket.SOCK_STREAM, fail=True)))  # type: ignore[arg-type]
+    for sock in (Sock(99, socket.SOCK_STREAM), Sock(socket.AF_INET, socket.SOCK_DGRAM)):
+        enable_tcp_nodelay(Transport(sock))  # type: ignore[arg-type]
+        assert sock.calls == 0
+
+    sock = Sock(socket.AF_INET, socket.SOCK_STREAM, fail=True)
+    with caplog.at_level(logging.DEBUG, logger="uvicorn.error"):
+        enable_tcp_nodelay(Transport(sock))  # type: ignore[arg-type]
+    assert sock.calls == 1
+    assert "Failed to enable TCP_NODELAY on accepted socket" in caplog.text
 
 
 def test_ssl_config(
