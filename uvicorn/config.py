@@ -525,7 +525,8 @@ class Config:
         if self.interface == "auto":
             if inspect.isclass(self.loaded_app):
                 use_asgi_3 = hasattr(self.loaded_app, "__await__")
-            elif inspect.isfunction(self.loaded_app):
+            # 2026-10-09: Coroutine partials expose a synchronous __call__ wrapper.
+            elif inspect.isfunction(self.loaded_app) or iscoroutinefunction(self.loaded_app):
                 use_asgi_3 = iscoroutinefunction(self.loaded_app)
             else:
                 call = getattr(self.loaded_app, "__call__", None)

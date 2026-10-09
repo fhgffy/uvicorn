@@ -9,6 +9,7 @@ import signal
 import sys
 from collections.abc import Callable, Generator
 from contextlib import AbstractContextManager
+from functools import partial  # 2026-10-09: Exercise partial ASGI applications through HTTP.
 
 import httpx2
 import pytest
@@ -85,6 +86,31 @@ async def test_server_interrupt(
     assert witness
     # set by the server's graceful exit handler
     assert server.should_exit
+
+
+# 2026-10-09: Auto detection must serve partial ASGI3 apps while retaining ASGI2 support.
+@pytest.mark.parametrize("asgi_version", ["2.0", "3.0"])
+async def test_partial_application(unused_tcp_port: int, asgi_version: str):
+    async def asgi3_app(scope: Scope, receive: ASGIReceiveCallable, send: ASGISendCallable, *, body: bytes) -> None:
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": body})
+
+    def asgi2_app(scope: Scope, *, body: bytes) -> Callable:
+        return partial(asgi3_app, scope, body=body)
+
+    application = asgi3_app if asgi_version == "3.0" else asgi2_app
+    config = Config(
+        app=partial(application, body=b"partial application"),
+        loop="asyncio",
+        http="h11",
+        lifespan="off",
+        port=unused_tcp_port,
+    )
+    async with run_server(config):
+        async with httpx2.AsyncClient(trust_env=False) as client:
+            response = await client.get(f"http://127.0.0.1:{unused_tcp_port}")
+    assert response.status_code == 200
+    assert response.content == b"partial application"
 
 
 async def test_shutdown_on_early_exit_during_startup(unused_tcp_port: int):

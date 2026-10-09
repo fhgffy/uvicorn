@@ -9,6 +9,7 @@ import socket
 import sys
 from collections.abc import Callable, Iterator
 from contextlib import closing
+from functools import partial  # 2026-10-09: Cover wrapped ASGI applications.
 from pathlib import Path
 from typing import IO, Any, Literal
 from unittest.mock import MagicMock
@@ -299,7 +300,11 @@ def asgi2_app(scope: Scope) -> Callable:
     return asgi  # pragma: nocover
 
 
-@pytest.mark.parametrize("app, expected_interface", [(asgi_app, "3.0"), (asgi2_app, "2.0")])
+# 2026-10-09: Partials retain the ASGI version of their wrapped callable.
+@pytest.mark.parametrize(
+    "app, expected_interface",
+    [(asgi_app, "3.0"), (asgi2_app, "2.0"), (partial(asgi_app), "3.0"), (partial(asgi2_app), "2.0")],
+)
 def test_asgi_version(app: ASGIApplication, expected_interface: Literal["2.0", "3.0"]) -> None:
     config = Config(app=app)
     config.load()
