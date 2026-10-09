@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import io
 import sys
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Callable, Iterator
 
 import a2wsgi
 import httpx2
@@ -109,6 +109,38 @@ async def test_wsgi_exc_info(wsgi_middleware: Callable) -> None:
         response = await client.get("/")
     assert response.status_code == 500
     assert response.text == "Internal Server Error"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("fail_iteration", [False, True])
+async def test_wsgi_closes_response_iterable(wsgi_middleware: Callable, fail_iteration: bool) -> None:
+    # 2026-10-10: WSGI response resources must close after success or iteration errors.
+    class Response:
+        closed = False
+
+        def __iter__(self) -> Iterator[bytes]:
+            yield b"Hello World!"
+            if fail_iteration:
+                raise RuntimeError("iteration failed")
+
+        def close(self) -> None:
+            self.closed = True
+
+    result = Response()
+
+    def app(environ: Environ, start_response: StartResponse) -> Response:
+        start_response("200 OK", [("Content-Type", "text/plain")], None)
+        return result
+
+    transport = httpx2.ASGITransport(wsgi_middleware(app))
+    async with httpx2.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        if fail_iteration:
+            with pytest.raises(RuntimeError, match="iteration failed"):
+                await client.get("/")
+        else:
+            response = await client.get("/")
+            assert response.text == "Hello World!"
+    assert result.closed
 
 
 def test_build_environ_encoding() -> None:

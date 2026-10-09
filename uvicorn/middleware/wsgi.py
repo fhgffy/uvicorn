@@ -175,14 +175,20 @@ class WSGIResponder:
             self.loop.call_soon_threadsafe(self.send_event.set)
 
     def wsgi(self, environ: Environ, start_response: StartResponse) -> None:
-        for chunk in self.app(environ, start_response):  # type: ignore
-            response_body: HTTPResponseBodyEvent = {
-                "type": "http.response.body",
-                "body": chunk,
-                "more_body": True,
-            }
-            self.send_queue.append(response_body)
-            self.loop.call_soon_threadsafe(self.send_event.set)
+        # 2026-10-10: Release WSGI response resources even if iteration fails.
+        result = self.app(environ, start_response)
+        try:
+            for chunk in result:  # type: ignore
+                response_body: HTTPResponseBodyEvent = {
+                    "type": "http.response.body",
+                    "body": chunk,
+                    "more_body": True,
+                }
+                self.send_queue.append(response_body)
+                self.loop.call_soon_threadsafe(self.send_event.set)
+        finally:
+            if hasattr(result, "close"):
+                result.close()
 
         empty_body: HTTPResponseBodyEvent = {
             "type": "http.response.body",
