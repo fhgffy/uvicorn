@@ -9,7 +9,7 @@ import socket
 import sys
 from collections.abc import Callable, Iterator
 from contextlib import closing
-from functools import partial  # 2026-10-09: Cover wrapped ASGI applications.
+from functools import partial
 from pathlib import Path
 from typing import IO, Any, Literal
 from unittest.mock import MagicMock
@@ -294,18 +294,21 @@ def test_ssl_config_combined(tls_certificate_key_and_chain_path: str) -> None:
 
 
 def asgi2_app(scope: Scope) -> Callable:
+    """Provide a synchronous ASGI2 entry point for auto-detection checks."""
+
     async def asgi(receive: ASGIReceiveCallable, send: ASGISendCallable) -> None:  # pragma: nocover
+        """Provide the inner callable expected by the ASGI2 protocol."""
         pass
 
     return asgi  # pragma: nocover
 
 
-# 2026-10-09: Partials retain the ASGI version of their wrapped callable.
 @pytest.mark.parametrize(
     "app, expected_interface",
     [(asgi_app, "3.0"), (asgi2_app, "2.0"), (partial(asgi_app), "3.0"), (partial(asgi2_app), "2.0")],
 )
 def test_asgi_version(app: ASGIApplication, expected_interface: Literal["2.0", "3.0"]) -> None:
+    """Detect the protocol of ordinary applications and their partial wrappers."""
     config = Config(app=app)
     config.load()
     assert config.asgi_version == expected_interface

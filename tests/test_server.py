@@ -9,7 +9,7 @@ import signal
 import sys
 from collections.abc import Callable, Generator
 from contextlib import AbstractContextManager
-from functools import partial  # 2026-10-09: Exercise partial ASGI applications through HTTP.
+from functools import partial
 
 import httpx2
 import pytest
@@ -88,14 +88,17 @@ async def test_server_interrupt(
     assert server.should_exit
 
 
-# 2026-10-09: Auto detection must serve partial ASGI3 apps while retaining ASGI2 support.
 @pytest.mark.parametrize("asgi_version", ["2.0", "3.0"])
 async def test_partial_application(unused_tcp_port: int, asgi_version: str):
+    """Serve bound arguments through partially applied ASGI2 and ASGI3 apps."""
+
     async def asgi3_app(scope: Scope, receive: ASGIReceiveCallable, send: ASGISendCallable, *, body: bytes) -> None:
+        """Send the response body bound by the partial application."""
         await send({"type": "http.response.start", "status": 200, "headers": []})
         await send({"type": "http.response.body", "body": body})
 
     def asgi2_app(scope: Scope, *, body: bytes) -> Callable:
+        """Bind the ASGI2 scope before receiving HTTP events."""
         return partial(asgi3_app, scope, body=body)
 
     application = asgi3_app if asgi_version == "3.0" else asgi2_app
