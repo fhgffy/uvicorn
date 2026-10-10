@@ -175,7 +175,7 @@ class WSGIResponder:
             self.loop.call_soon_threadsafe(self.send_event.set)
 
     def wsgi(self, environ: Environ, start_response: StartResponse) -> None:
-        # 2026-10-10: Release WSGI response resources even if iteration fails.
+        """Release WSGI response resources even if iteration fails."""
         result = self.app(environ, start_response)
         try:
             for chunk in result:  # type: ignore

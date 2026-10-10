@@ -114,21 +114,27 @@ async def test_wsgi_exc_info(wsgi_middleware: Callable) -> None:
 @pytest.mark.anyio
 @pytest.mark.parametrize("fail_iteration", [False, True])
 async def test_wsgi_closes_response_iterable(wsgi_middleware: Callable, fail_iteration: bool) -> None:
-    # 2026-10-10: WSGI response resources must close after success or iteration errors.
+    """WSGI response resources must close after success or iteration errors."""
+
     class Response:
+        """Track response resource cleanup."""
+
         closed = False
 
         def __iter__(self) -> Iterator[bytes]:
+            """Yield a response chunk and optionally fail during iteration."""
             yield b"Hello World!"
             if fail_iteration:
                 raise RuntimeError("iteration failed")
 
         def close(self) -> None:
+            """Record that the server closed the response."""
             self.closed = True
 
     result = Response()
 
     def app(environ: Environ, start_response: StartResponse) -> Response:
+        """Return the response iterable after starting the response."""
         start_response("200 OK", [("Content-Type", "text/plain")], None)
         return result
 
