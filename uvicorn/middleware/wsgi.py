@@ -106,6 +106,7 @@ class WSGIResponder:
         executor: concurrent.futures.ThreadPoolExecutor,
         scope: HTTPScope,
     ):
+        """Initialize the response queue and WSGI execution state."""
         self.app = app
         self.executor = executor
         self.scope = scope
@@ -118,6 +119,7 @@ class WSGIResponder:
         self.exc_info: ExcInfo | None = None
 
     async def __call__(self, receive: ASGIReceiveCallable, send: ASGISendCallable) -> None:
+        """Collect the request body and send the WSGI response."""
         message: HTTPRequestEvent = await receive()  # type: ignore[assignment]
         body = io.BytesIO(message.get("body", b""))
         more_body = message.get("more_body", False)
@@ -144,6 +146,7 @@ class WSGIResponder:
             raise self.exc_info[0].with_traceback(self.exc_info[1], self.exc_info[2])
 
     async def sender(self, send: ASGISendCallable) -> None:
+        """Send queued response messages until the responder finishes."""
         while True:
             if self.send_queue:
                 message = self.send_queue.popleft()
@@ -160,6 +163,7 @@ class WSGIResponder:
         response_headers: Iterable[tuple[str, str]],
         exc_info: ExcInfo | None = None,
     ) -> None:
+        """Queue the HTTP status and headers when the response starts."""
         self.exc_info = exc_info
         if not self.response_started:
             self.response_started = True

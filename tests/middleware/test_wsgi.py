@@ -100,6 +100,7 @@ async def test_wsgi_exception(wsgi_middleware: Callable) -> None:
 
 @pytest.mark.anyio
 async def test_wsgi_exc_info(wsgi_middleware: Callable) -> None:
+    """Preserve the WSGI error response when exception information is supplied."""
     app = wsgi_middleware(return_exc_info)
     transport = httpx2.ASGITransport(
         app=app,
@@ -150,6 +151,7 @@ async def test_wsgi_closes_response_iterable(wsgi_middleware: Callable, fail_ite
 
 
 def test_build_environ_encoding() -> None:
+    """Encode WSGI path fields as Latin-1 and combine repeated headers."""
     scope: HTTPScope = {
         "asgi": {"version": "3.0", "spec_version": "2.0"},
         "scheme": "http",
