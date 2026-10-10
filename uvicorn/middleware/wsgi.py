@@ -190,17 +190,16 @@ class WSGIResponder:
                 }
                 self.send_queue.append(response_body)
                 self.loop.call_soon_threadsafe(self.send_event.set)
+            empty_body: HTTPResponseBodyEvent = {
+                "type": "http.response.body",
+                "body": b"",
+                "more_body": False,
+            }
+            self.send_queue.append(empty_body)
+            self.loop.call_soon_threadsafe(self.send_event.set)
         finally:
             if hasattr(result, "close"):
                 result.close()
-
-        empty_body: HTTPResponseBodyEvent = {
-            "type": "http.response.body",
-            "body": b"",
-            "more_body": False,
-        }
-        self.send_queue.append(empty_body)
-        self.loop.call_soon_threadsafe(self.send_event.set)
 
 
 try:

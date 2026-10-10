@@ -8,7 +8,7 @@ import a2wsgi
 import httpx2
 import pytest
 
-from uvicorn._types import Environ, HTTPRequestEvent, HTTPScope, StartResponse
+from uvicorn._types import ASGISendEvent, Environ, HTTPRequestEvent, HTTPScope, StartResponse
 from uvicorn.middleware import wsgi
 
 
@@ -148,6 +148,65 @@ async def test_wsgi_closes_response_iterable(wsgi_middleware: Callable, fail_ite
             response = await client.get("/")
             assert response.text == "Hello World!"
     assert result.closed
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("fail_iteration", [False, True])
+async def test_wsgi_close_error(fail_iteration: bool) -> None:
+    """Finish exhausted responses despite cleanup errors, but keep failed iteration incomplete."""
+
+    class Response:
+        """Raise during cleanup after optionally failing iteration."""
+
+        def __iter__(self) -> Iterator[bytes]:
+            """Yield one chunk before the optional iteration error."""
+            yield b"Hello World!"
+            if fail_iteration:
+                raise RuntimeError("iteration failed")
+
+        def close(self) -> None:
+            """Report a resource cleanup failure."""
+            raise RuntimeError("close failed")
+
+    def app(environ: Environ, start_response: StartResponse) -> Response:
+        """Start a response whose iterable raises during cleanup."""
+        start_response("200 OK", [("Content-Type", "text/plain")], None)
+        return Response()
+
+    async def receive() -> HTTPRequestEvent:
+        """Supply an empty request body."""
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    messages: list[ASGISendEvent] = []
+
+    async def send(message: ASGISendEvent) -> None:
+        """Record every response event, including terminal body events."""
+        messages.append(message)
+
+    scope: HTTPScope = {
+        "asgi": {"version": "3.0", "spec_version": "2.0"},
+        "scheme": "http",
+        "raw_path": b"/",
+        "type": "http",
+        "http_version": "1.1",
+        "method": "GET",
+        "path": "/",
+        "root_path": "",
+        "client": None,
+        "server": None,
+        "query_string": b"",
+        "headers": [],
+        "extensions": {},
+    }
+    middleware = wsgi._WSGIMiddleware(app)
+    with pytest.raises(RuntimeError, match="close failed") as exc:
+        await middleware(scope, receive, send)
+    assert str(exc.value.__context__) == ("iteration failed" if fail_iteration else "None")
+    assert messages[:2] == [
+        {"type": "http.response.start", "status": 200, "headers": [(b"Content-Type", b"text/plain")]},
+        {"type": "http.response.body", "body": b"Hello World!", "more_body": True},
+    ]
+    assert messages[2:] == ([] if fail_iteration else [{"type": "http.response.body", "body": b"", "more_body": False}])
 
 
 def test_build_environ_encoding() -> None:
